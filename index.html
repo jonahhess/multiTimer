@@ -111,6 +111,14 @@
       .stage button:hover {
         opacity: 1;
       }
+
+      #currentTime {
+        display: block;
+        margin-right: auto;
+        font-variant-numeric: tabular-nums;
+        font-size: 1rem;
+        color: #777;
+      }
     </style>
   </head>
 
@@ -141,6 +149,7 @@
         </div>
       </section>
       <button type="button" id="startButton">Start</button>
+      <button type="button" id="stopButton">Stop</button>
     </main>
 
     <script>
@@ -246,6 +255,10 @@
         showEditorUI();
       }
 
+      document
+        .getElementById("stopButton")
+        .addEventListener("click", () => stopTimer());
+
       function showTimerUI(stage) {
         document.querySelector(".timer").hidden = false;
         document.getElementById("stageTitle").textContent = stage.title;
@@ -253,6 +266,8 @@
 
       function showEditorUI() {
         document.querySelector(".timer").hidden = true;
+        document.getElementById("stageTitle").textContent = "";
+        document.getElementById("stageTimeRemaining").textContent = "";
       }
 
       function renderRemainingTime(ms) {
@@ -263,6 +278,30 @@
         document.getElementById("stageTimeRemaining").textContent =
           `${minutes}:${String(seconds).padStart(2, "0")}`;
       }
+
+      function renderCurrentTime() {
+        const now = new Date();
+
+        const hours = now.getHours();
+        const minutes = String(now.getMinutes()).padStart(2, "0");
+
+        document.getElementById("currentTime").textContent =
+          `${hours}:${minutes}`;
+      }
+
+      let clockId = null;
+
+      function startClock() {
+        renderCurrentTime();
+        clockId = setInterval(renderCurrentTime, 1000);
+      }
+
+      function stopClock() {
+        clearInterval(clockId);
+        clockId = null;
+      }
+
+      window.addEventListener("beforeunload", stopClock);
 
       function addStage(title, duration) {
         stages.push({ title, duration });
@@ -348,6 +387,7 @@
         .getElementById("saveNewStage")
         .addEventListener("click", () => handleNewStage());
 
+      startClock();
       stages = loadStages();
       ensureFreeStage();
       renderStagesList();
