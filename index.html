@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Multi Timer</title>
+
+    <style>
+      /* ===== Reset & Base ===== */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+        background: #f4f6f8;
+        color: #222;
+      }
+
+      h1 {
+        margin: 1rem;
+      }
+
+      p {
+        margin: 0 1rem 1rem;
+        color: #555;
+      }
+
+      /* ===== Timer ===== */
+
+      .timer {
+        display: grid;
+        gap: 1rem;
+        padding: 2rem;
+        margin: 1rem;
+        border-radius: 12px;
+        background: white;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        text-align: center;
+      }
+
+      #currentTime {
+        font-size: 0.9rem;
+        color: #888;
+        letter-spacing: 0.05em;
+      }
+
+      .stageInfo h2 {
+        margin: 0;
+        font-size: clamp(2rem, 5vw, 3.5rem);
+        font-weight: 700;
+      }
+
+      #stageTimeRemaining {
+        font-variant-numeric: tabular-nums;
+        font-size: clamp(3rem, 8vw, 6rem);
+        font-weight: 800;
+        letter-spacing: 0.05em;
+      }
+
+      /* ===== Danger zone ===== */
+
+      .timer.danger {
+        background: #fff5f5;
+      }
+
+      .timer.danger #stageTimeRemaining {
+        color: #d32f2f;
+      }
+
+      .timer.danger .stageInfo h2 {
+        color: #b71c1c;
+      }
+
+      /* ===== Stage editor ===== */
+
+      #stages {
+        margin: 1rem;
+        display: grid;
+        gap: 0.5rem;
+      }
+
+      .stage {
+        display: grid;
+        grid-template-columns: 1fr 6rem auto;
+        gap: 0.5rem;
+        align-items: center;
+      }
+
+      .stage input {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.9rem;
+      }
+
+      .stage button {
+        font-size: 1.2rem;
+        background: none;
+        border: none;
+        cursor: pointer;
+        opacity: 0.5;
+      }
+
+      .stage button:hover {
+        opacity: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1 data-i18n="title"></h1>
+    <p data-i18n="subtitle"></p>
+
+    <main>
+      <div class="timer" hidden>
+        <span id="currentTime"></span>
+        <section class="stageInfo">
+          <h2 id="stageTitle"></h2>
+          <span id="stageTimeRemaining"></span>
+        </section>
+      </div>
+      <section id="stages">
+        <div id="newStage">
+          <input type="hidden" id="newStageIndex" />
+          <input type="text" id="newStageTitle" placeholder="Title" />
+          <input
+            type="number"
+            id="newStageDuration"
+            min="1"
+            step="1"
+            placeholder="Minutes"
+          />
+          <button type="button" id="saveNewStage">Save New Stage</button>
+        </div>
+      </section>
+      <button type="button" id="startButton">Start</button>
+    </main>
+
+    <script>
+      const STORAGE_KEY = "multiTimerStages";
+
+      let stages = [];
+      let currentStageIndex = 0;
+      let stageEndTime = null;
+      let timerId = null;
+
+      function loadStages() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return [
+            { title: "Read problem", duration: 3 },
+            { title: "Examples & edge cases", duration: 4 },
+            { title: "First solution", duration: 7 },
+            { title: "Optimize & explain", duration: 5 },
+          ];
+        }
+        return JSON.parse(raw);
+      }
+
+      function ensureFreeStage() {
+        const last = stages[stages.length - 1];
+        if (!last || !last.free) {
+          stages.push({ title: "Free time", free: true });
+        }
+      }
+
+      function saveStages() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(stages));
+      }
+
+      // game loop
+      function startTimer() {
+        if (!stages.length) return;
+
+        currentStageIndex = 0;
+        startStage(currentStageIndex);
+      }
+
+      function startStage(index) {
+        document.querySelector(".timer").classList.remove("danger");
+        const stage = stages[index];
+        if (!stage) {
+          stopTimer();
+          return;
+        }
+
+        if (stage.free) {
+          stageEndTime = null;
+          renderFreeTime();
+          timerId = setInterval(tickFree, 250);
+          return;
+        }
+
+        const now = Date.now();
+        stageEndTime = now + stage.duration * 60_000;
+
+        showTimerUI(stage);
+        tick(); // render immediately
+
+        timerId = setInterval(tick, 250);
+      }
+
+      function tick() {
+        const now = Date.now();
+        const remainingMs = stageEndTime - now;
+
+        if (remainingMs <= 0) {
+          nextStage();
+          return;
+        }
+
+        renderRemainingTime(remainingMs);
+        updateDangerState(remainingMs);
+      }
+
+      function nextStage() {
+        currentStageIndex++;
+
+        if (currentStageIndex >= stages.length) {
+          stopTimer();
+          return;
+        }
+
+        startStage(currentStageIndex);
+      }
+
+      function updateDangerState(remainingMs) {
+        const timerEl = document.querySelector(".timer");
+        const danger = remainingMs <= 30_000;
+
+        timerEl.classList.toggle("danger", danger);
+      }
+
+      function stopTimer() {
+        clearInterval(timerId);
+        timerId = null;
+        stageEndTime = null;
+
+        showEditorUI();
+      }
+
+      function showTimerUI(stage) {
+        document.querySelector(".timer").hidden = false;
+        document.getElementById("stageTitle").textContent = stage.title;
+      }
+
+      function showEditorUI() {
+        document.querySelector(".timer").hidden = true;
+      }
+
+      function renderRemainingTime(ms) {
+        const totalSeconds = Math.ceil(ms / 1000);
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+
+        document.getElementById("stageTimeRemaining").textContent =
+          `${minutes}:${String(seconds).padStart(2, "0")}`;
+      }
+
+      function addStage(title, duration) {
+        stages.push({ title, duration });
+        saveStages();
+        renderStagesList();
+      }
+
+      function renderStagesList() {
+        const container = document.getElementById("stages");
+
+        // Keep your "new stage" row
+        const newStageRow = document.getElementById("newStage");
+
+        container.innerHTML = "";
+        container.appendChild(newStageRow);
+
+        stages.forEach((stage, index) => {
+          const row = document.createElement("div");
+          row.className = "stage";
+
+          const titleInput = document.createElement("input");
+          titleInput.type = "text";
+          titleInput.value = stage.title;
+
+          const durationInput = document.createElement("input");
+          durationInput.type = "number";
+          durationInput.min = "1";
+          durationInput.value = stage.duration;
+
+          const buttonsDiv = document.createElement("div");
+          buttonsDiv.className = "buttons";
+
+          const deleteBtn = document.createElement("button");
+          deleteBtn.textContent = "×";
+          deleteBtn.title = "Delete stage";
+
+          const saveBtn = document.createElement("button");
+          saveBtn.textContent = "✔️";
+          saveBtn.title = "Save stage";
+
+          buttonsDiv.append(deleteBtn, saveBtn);
+
+          // ---- events ----
+          deleteBtn.addEventListener("click", () => {
+            stages.splice(index, 1);
+            saveStages();
+            renderStagesList();
+          });
+
+          saveBtn.addEventListener("click", () => {
+            console.log("saved");
+            stages[index] = {
+              title: titleInput.value,
+              duration: durationInput.value,
+            };
+            saveStages();
+            renderStagesList();
+          });
+
+          row.append(titleInput, durationInput, buttonsDiv);
+          container.appendChild(row);
+        });
+      }
+
+      function handleNewStage() {
+        const titleInput = document.getElementById("newStageTitle");
+        const durationInput = document.getElementById("newStageDuration");
+
+        const title = titleInput.value.trim();
+        const duration = Number(durationInput.value);
+
+        if (!title || !duration) return;
+
+        stages.push({ title, duration });
+        saveStages();
+        renderStagesList();
+
+        titleInput.value = "";
+        durationInput.value = "";
+      }
+
+      document
+        .getElementById("saveNewStage")
+        .addEventListener("click", () => handleNewStage());
+
+      stages = loadStages();
+      ensureFreeStage();
+      renderStagesList();
+
+      document
+        .getElementById("startButton")
+        .addEventListener("click", startTimer);
+    </script>
+  </body>
+</html>
